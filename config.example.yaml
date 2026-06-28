@@ -1,0 +1,302 @@
+# news-digest config. Copy to config.yaml and edit.
+
+# Persona — used to guide ranking + summarization tone.
+persona:
+  role: "Senior software engineer working on ML infrastructure"
+  interests:
+    - "distributed training (pipeline/tensor parallelism, FSDP, NCCL)"
+    - "LLM inference and serving (kv-cache, paged attention, speculative decoding, batching)"
+    - "accelerator hardware (H100/B200/TPU/MI300, interconnects, memory bandwidth)"
+    - "compilers and kernels (Triton, CUDA, XLA, MLIR, torch.compile)"
+    - "training systems (mixed precision, checkpointing, fault tolerance, data loading)"
+    - "model architectures and scaling (MoE, attention variants, long context)"
+    - "RL infrastructure and post-training (RLHF, DPO, environment scaling)"
+    - "production ML reliability, observability, cost"
+  finance_interests:
+    - "macro and rates"
+    - "AI sector / semiconductor capex"
+    - "tech industry strategy"
+
+# Schedule — when to send. launchd runs in LOCAL time on this machine.
+# If your laptop's timezone is PT (America/Los_Angeles), send_hour: 10 = 10am PT.
+# If you travel, the cron follows the laptop's clock; reinstall the plist after a TZ change.
+schedule:
+  send_hour: 10
+  send_minute: 0
+  # Time window: include items published within the last N hours.
+  lookback_hours: 24
+
+# Recipients — list of email addresses; one email is sent per recipient with the same body.
+recipients:
+  - your-name@example.com
+  # - second-recipient@example.com
+  # - second@example.com
+
+# Sender / SMTP. For Gmail use an App Password (myaccount.google.com/apppasswords).
+smtp:
+  host: smtp.gmail.com
+  port: 587
+  username: sender@gmail.com
+  # Store the password in macOS Keychain instead of here. Run:
+  #   security add-generic-password -a "$USER" -s news-digest-smtp -w 'YOUR_APP_PASSWORD'
+  # If keychain_account is set, the password is read from Keychain at runtime.
+  keychain_service: news-digest-smtp
+  password: null  # only used if keychain_service is null
+  from_name: "Daily Digest"
+  from_address: sender@gmail.com
+
+# Bedrock for summarization. Uses your existing AWS_PROFILE/AWS_REGION env (the same
+# Bedrock setup Claude Code uses). Set model to a Haiku for speed/cost.
+bedrock:
+  region: us-west-2  # closer to SF Bay Area; switch to us-east-1 if you move
+  # Use Claude Haiku 4.5 for cheap fast summaries.
+  model_id: "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  max_tokens: 900            # rich summaries (bullets + impact + utilize + discussion + explore) need headroom
+  max_summaries: 20          # how many items the LLM looks at; final email shows ranking.top_n
+
+# Ranking — separate caps per persona. Each persona has its own scorer (keyword
+# weights live in src/news_digest/personas.py) and its own top-of-mind summary.
+ranking:
+  engineer_top_n: 10     # ML Infra & Tech section cap
+  investor_top_n: 10     # Finance & Markets section cap
+  relevance_weight: 0.6  # how much weight to give the LLM's relevance_score (0-10) vs keyword score
+  min_relevance: 3       # drop items the LLM scores below this (out of 10)
+  # Per-kind min/max quotas applied inside each section. `min` guarantees at least N items
+  # of that kind appear (even if scored lower); `max` caps how many can crowd the section.
+  # Kinds: tech blog, paper, twitter, newsletter, aggregator, release, personal blog, academic, macro, finance
+  kind_quotas:
+    twitter:        {min: 1}       # pin at least 1 X post if any survived ingestion
+    "tech blog":    {min: 1}       # always at least 1 official lab/vendor post
+    paper:          {max: 1}       # papers are dense — only the single best one
+    aggregator:     {max: 2}       # cap HN noise
+    release:        {max: 2}       # cap HF model dumps
+
+# Sources — toggle on/off, set weight (multiplier on rank score).
+sources:
+  # === ML labs / industry ===
+  - {name: "DeepMind",      url: "https://deepmind.google/blog/rss.xml",        category: ml_infra, weight: 1.0, enabled: true}
+  - {name: "Google Research", url: "https://research.google/blog/rss/",         category: ml_infra, weight: 1.0, enabled: true}
+  - {name: "OpenAI",        url: "https://openai.com/news/rss.xml",             category: ml_infra, weight: 1.0, enabled: true}
+  - {name: "Hugging Face",  url: "https://huggingface.co/blog/feed.xml",        category: ml_infra, weight: 0.9, enabled: true}
+  - {name: "PyTorch",       url: "https://pytorch.org/blog/feed.xml",           category: ml_infra, weight: 1.1, enabled: true}
+  - {name: "NVIDIA Dev",    url: "https://developer.nvidia.com/blog/feed",      category: ml_infra, weight: 1.1, enabled: true}
+  - {name: "Microsoft Research", url: "https://www.microsoft.com/en-us/research/feed/", category: ml_infra, weight: 0.8, enabled: true}
+  - {name: "Together.ai",   url: "https://www.together.ai/blog/rss.xml",        category: ml_infra, weight: 0.8, enabled: true}
+  - {name: "Replicate",     url: "https://replicate.com/blog/rss",              category: ml_infra, weight: 0.7, enabled: true}
+  # === Academic labs ===
+  - {name: "BAIR (Berkeley)",   url: "https://bair.berkeley.edu/blog/feed.xml",  category: ml_infra, weight: 1.0, enabled: true}
+  - {name: "Stanford AI Lab",   url: "https://ai.stanford.edu/blog/feed.xml",    category: ml_infra, weight: 0.9, enabled: true}
+  - {name: "CMU ML",            url: "https://blog.ml.cmu.edu/feed/",            category: ml_infra, weight: 0.9, enabled: true}
+  - {name: "MIT News (AI)",     url: "https://news.mit.edu/rss/topic/artificial-intelligence2", category: ml_infra, weight: 0.7, enabled: true}
+  # === Newsletters / personal ===
+  - {name: "Import AI",         url: "https://importai.substack.com/feed",       category: discussions, weight: 1.0, enabled: true}
+  - {name: "Latent Space",      url: "https://www.latent.space/feed",            category: discussions, weight: 1.0, enabled: true}
+  - {name: "Ahead of AI",       url: "https://magazine.sebastianraschka.com/feed", category: discussions, weight: 1.0, enabled: true}
+  - {name: "Smol AI News",      url: "https://news.smol.ai/rss.xml",              category: discussions, weight: 1.3, enabled: true}  # high-signal AI engineering digest — best single curation source
+  - {name: "Karpathy",          url: "https://karpathy.github.io/feed.xml",      category: discussions, weight: 1.3, enabled: true}
+  - {name: "Lilian Weng",       url: "https://lilianweng.github.io/index.xml",   category: discussions, weight: 1.2, enabled: true}
+  - {name: "Chip Huyen",        url: "https://huyenchip.com/feed.xml",           category: discussions, weight: 1.1, enabled: true}
+  - {name: "Simon Willison",    url: "https://simonwillison.net/atom/everything/", category: discussions, weight: 1.0, enabled: true}
+  # === Papers / aggregators ===
+  - {name: "arXiv cs.LG",       url: "https://export.arxiv.org/rss/cs.LG",       category: papers, weight: 1.0, enabled: true}
+  - {name: "arXiv cs.DC",       url: "https://export.arxiv.org/rss/cs.DC",       category: papers, weight: 1.0, enabled: true}
+  - {name: "Hacker News",       url: "https://hnrss.org/frontpage?points=100",   category: discussions, weight: 0.7, enabled: true}
+  - {name: "HN ML/Infra filter", url: "https://hnrss.org/newest?q=LLM+OR+inference+OR+GPU+OR+CUDA+OR+training&points=50", category: discussions, weight: 0.9, enabled: true}
+  # === Finance / macro ===
+  - {name: "Marginal Revolution", url: "https://marginalrevolution.com/feed",    category: finance, weight: 0.9, enabled: true}
+  - {name: "Stratechery",       url: "https://stratechery.com/feed/",            category: finance, weight: 1.0, enabled: true}
+  - {name: "Noahpinion",        url: "https://www.noahpinion.blog/feed",         category: finance, weight: 0.8, enabled: true}
+  - {name: "Matt Stoller BIG",  url: "https://www.thebignewsletter.com/feed",    category: finance, weight: 0.8, enabled: true}
+  - {name: "WSJ Markets",       url: "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain", category: finance, weight: 0.7, enabled: true}
+  - {name: "FT Alphaville",     url: "https://www.ft.com/alphaville?format=rss", category: finance, weight: 0.9, enabled: true}
+
+# Twitter / X — the fastest signal but needs explicit auth path. Pick ONE strategy.
+# Fallback order at runtime: x_api → rsshub → nitter (whichever has creds/instances).
+twitter:
+  enabled: true
+  # Handles to track. Items from these become a "Twitter / X" section.
+  handles:
+    - karpathy
+    - DarioAmodei
+    - sama
+    - ylecun
+    - jeffdean
+    - JimFan
+    - drjwrae
+    - tri_dao
+    - giffmana
+    - srush_nlp
+    - soumithchintala
+  weight: 1.4  # X items often score high — set < 1 to dampen.
+  lookback_hours: 24
+  max_per_handle: 5
+
+  # Strategy 1: official X API v2 (most reliable, paid Basic tier ~$100/mo).
+  # Set TWITTER_BEARER_TOKEN env var. If present, this path wins.
+  x_api:
+    enabled: true
+
+  # Strategy 2: syndication.twitter.com (the embed-widget endpoint). No auth, no
+  # key. This is the most reliable free option as of 2026. Schema is not
+  # documented — if X breaks it, the pipeline falls through to rsshub/nitter.
+  syndication:
+    enabled: true
+
+  # Strategy 3: RSSHub. Self-hosted is reliable; public rsshub.app is
+  # rate-limited and sometimes blocked. Endpoint: {base}/twitter/user/{handle}
+  rsshub:
+    enabled: true
+    base_url: "https://rsshub.app"
+    access_key: null
+
+  # Strategy 4: Nitter pool. Community instances; rotate + retry.
+  # Working instances drift — most public instances 403 in 2026.
+  nitter:
+    enabled: true
+    instances:
+      - "https://nitter.poast.org"
+      - "https://nitter.privacydev.net"
+      - "https://nitter.tiekoetter.com"
+      - "https://nitter.space"
+    max_retries_per_instance: 2
+    request_timeout_sec: 12
+
+# Anthropic news (no RSS) — scrape the listing page with BeautifulSoup.
+anthropic_scraper:
+  enabled: true
+  url: "https://www.anthropic.com/news"
+  category: ml_infra
+  weight: 1.2
+
+# Hugging Face — JSON endpoints, adapted into item shape by huggingface.py.
+huggingface:
+  trending_models:
+    enabled: true
+    limit: 50
+    min_downloads: 1000   # keep models with >= 1k downloads
+    min_likes: 30         # OR >= 30 likes
+    category: ml_infra
+    weight: 1.0
+  daily_papers:
+    enabled: true
+    limit: 30
+    category: papers
+    weight: 1.2
+
+# arXiv author alerts — track specific researchers. Names with spaces should be
+# percent-encoded as %22First+Last%22 to enforce quoted phrase matching.
+arxiv_authors:
+  enabled: true
+  category: papers
+  weight: 1.3
+  max_results_per_author: 5
+  lookback_days: 30  # arXiv is slower than blogs; widen the window
+  authors:
+    - {name: "Andrej Karpathy",   query: "%22Andrej+Karpathy%22"}
+    - {name: "Tri Dao",           query: "%22Tri+Dao%22"}
+    - {name: "Yann LeCun",        query: "%22Yann+LeCun%22"}
+    - {name: "Jeff Dean",         query: "%22Jeffrey+Dean%22"}
+    - {name: "Lilian Weng",       query: "%22Lilian+Weng%22"}
+    - {name: "Dario Amodei",      query: "%22Dario+Amodei%22"}
+    - {name: "William Fedus",     query: "%22William+Fedus%22"}
+    - {name: "Noam Shazeer",      query: "%22Noam+Shazeer%22"}
+    - {name: "Tim Dettmers",      query: "%22Tim+Dettmers%22"}
+    - {name: "Albert Gu",         query: "%22Albert+Gu%22"}
+
+# Dynamic discovery — `news-digest discover` mines HN for trending domains
+# and writes suggestions to data/discovered_sources.yaml. Manually merge useful ones.
+discovery:
+  min_hn_score: 200
+  lookback_days: 7
+
+# Reddit — RSS-only (JSON endpoints 403 unauthenticated in 2026). 10s spacing
+# between subs to dodge rate limits.
+reddit:
+  enabled: true
+  mode: rss
+  user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 news-digest/0.1"
+  url_template: "https://www.reddit.com/r/{sub}/top.rss?t=day"
+  request_spacing_seconds: 10
+  cache_ttl_sec: 21600
+  weight: 0.9
+  subreddits:
+    - MachineLearning
+    - LocalLLaMA
+    - LLMDevs
+    - artificial
+    - wallstreetbets
+    - stocks
+    - investing
+  retry_on_429:
+    max_attempts: 4
+    backoff_seconds: [15, 30, 60, 120]
+
+# HTTP response cache — disk-backed. Each fetched URL is stored for cache.ttl_sec
+# (default 6h). Avoids re-hitting upstreams within the same day and protects
+# against rate-limit storms when the cron runs more than once.
+cache:
+  ttl_sec: 21600      # 6h — same-day reruns reuse cached responses
+  max_age_days: 7     # prune entries older than this
+
+# Storage
+storage:
+  sqlite_path: "data/digest.db"
+  feedback_path: "data/feedback.jsonl"
+  preferences_md: "data/preferences.md"
+  items_index: "data/items_index.json"
+  # Items older than this are pruned from the dedup db.
+  retain_days: 60
+
+# X/Twitter discussion signal — for each top-ranked item, search DDG for
+# `site:x.com <key terms>` and use the number of returned tweet URLs both
+# (a) as a multiplicative boost on the item's score, and
+# (b) as a "Discussion on X" block rendered inline in the email.
+# No Twitter API key needed; uses DuckDuckGo HTML.
+x_discussion:
+  enabled: true
+  max_workers: 4
+  max_results_per_item: 3   # how many tweet URLs to show
+  sleep_between_sec: 0.3    # politeness delay between DDG calls
+  score_weight: 0.4         # how much hit-count boosts the score (log scaled)
+  max_multiplier: 2.0       # cap on the multiplier
+
+# Local Flask server + Cloudflare quick tunnel for off-laptop access.
+#
+# Email links to 👍/👎/🔊/click-track resolve in this priority order:
+#   1) URL written to tunnel_url_path by the cloudflared launchd job
+#   2) public_base_url (if you have a stable named tunnel set up)
+#   3) base_url (localhost — only works when reading on the same Mac)
+#
+# To enable mobile access:
+#   brew install cloudflared
+#   scripts/install_tunnel_launchd.sh
+# Then the daily digest's links will route through https://<random>.trycloudflare.com.
+# The URL rotates whenever cloudflared restarts; each fresh email picks up the
+# new URL automatically. Emails already sent keep their old (dead) URL — that's
+# inherent to email.
+server:
+  enabled: true
+  host: 127.0.0.1
+  port: 9123
+  base_url: "http://127.0.0.1:9123"
+  public_base_url: null   # set if you have a stable named tunnel
+  tunnel_url_path: "data/tunnel_url.txt"
+
+# TTS for "listen" buttons. Two providers; falls back from polly → say on error.
+# - "polly": AWS Polly neural voices. ~$16 per 1M chars. Needs IAM perm
+#            polly:SynthesizeSpeech on your Bedrock role (current Claude role does NOT have it,
+#            so audio currently falls back to `say`). To enable: add a policy granting that action.
+# - "say":   macOS built-in. Free, offline, decent quality with Siri voices.
+audio:
+  enabled: true
+  provider: "say"     # "polly" or "say"
+  region: us-east-1
+  polly_voice: "Joanna"     # try "Matthew", "Ruth", "Stephen"
+  say_voice:   "Samantha"   # macOS voice — see `say -v ?` for the full list
+  output_dir: "data/audio"
+
+# Output
+output:
+  # Where to write the rendered HTML when running in preview mode.
+  preview_path: "data/preview.html"
+  log_dir: "logs"

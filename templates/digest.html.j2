@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{{ subject }}</title>
+</head>
+<body style="margin:0;padding:0;background:#f7f7f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1a1a1a;">
+<div style="max-width:720px;margin:0 auto;background:#ffffff;padding:32px 28px;">
+
+  <!-- ============= Masthead ============= -->
+  <div style="border-bottom:2px solid #1a1a1a;padding-bottom:12px;margin-bottom:20px;">
+    <div style="font-size:12px;color:#666;letter-spacing:0.08em;text-transform:uppercase;">Daily Digest</div>
+    <h1 style="font-size:24px;margin:6px 0 0;line-height:1.25;">{{ date_long }}</h1>
+    <div style="font-size:12px;color:#888;margin-top:4px;">
+      {{ counts.total }} item{{ "" if counts.total == 1 else "s" }} ranked from {{ counts.sources }} sources
+    </div>
+  </div>
+
+  <!-- ============= Sections ============= -->
+  {% for section in sections %}
+
+  <!-- Section header -->
+  <div style="margin:32px 0 14px;">
+    <h2 style="font-size:18px;margin:0;letter-spacing:0.02em;border-top:3px solid #1a1a1a;padding-top:14px;">{{ section.title }}</h2>
+  </div>
+
+  <!-- Section's top-of-mind -->
+  {% set es = section.executive_summary %}
+  {% if es and (es.headline or es.themes) %}
+  <div style="background:#f3f1ec;padding:18px 20px;border-left:3px solid #1a1a1a;margin-bottom:24px;">
+    <div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#666;margin-bottom:8px;">Top of mind</div>
+    {% if es.headline %}
+    <div style="font-size:15px;line-height:1.45;font-weight:600;color:#1a1a1a;margin-bottom:14px;">{{ es.headline }}</div>
+    {% endif %}
+    {% for theme in es.themes %}
+    <div style="margin-bottom:{{ '12px' if not loop.last else '0' }};">
+      <div style="font-size:12px;font-weight:700;color:#1d4ed8;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;">{{ theme.label }}</div>
+      <ul style="margin:0;padding-left:20px;font-size:13px;line-height:1.55;color:#222;">
+        {% for b in theme.bullets %}<li style="margin-bottom:3px;">{{ b }}</li>{% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Subsections -->
+  {% for sub in section.subsections %}
+  <div style="margin:24px 0 6px;">
+    <h3 style="font-size:13px;margin:0 0 12px;letter-spacing:0.06em;text-transform:uppercase;color:#1d4ed8;border-bottom:1px solid #e7e3da;padding-bottom:5px;">{{ sub.label }} <span style="color:#888;font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;">· {{ sub.entries|length }}</span></h3>
+  </div>
+
+  {% for it in sub.entries %}
+  <div style="margin-bottom:26px;padding-bottom:20px;border-bottom:1px solid #eee;">
+
+    <!-- Rank + meta + (when tunnel up) per-item action buttons -->
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+      <div style="font-size:11px;color:#888;">
+        <span style="display:inline-block;min-width:22px;font-weight:700;color:#1a1a1a;">#{{ loop.index }}</span>
+        · {{ it.source }}{% if it.published_at %} · {{ it.published_at[:10] }}{% endif %}
+      </div>
+      {% if server_url %}
+      <div style="font-size:13px;">
+        <a href="{{ server_url }}/up/{{ it.id }}"   style="text-decoration:none;color:#065f46;padding:0 4px;" title="Boost this kind of item">👍</a>
+        <a href="{{ server_url }}/down/{{ it.id }}" style="text-decoration:none;color:#b91c1c;padding:0 4px;" title="Suppress this kind of item">👎</a>
+        {% if it.audio_url %}<a href="{{ server_url }}/listen/{{ it.id }}" style="text-decoration:none;color:#1d4ed8;padding:0 4px;" title="Listen">🔊</a>{% endif %}
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Chip row: source kind · use case · relevance -->
+    {% set kind_colors = {
+      "tech blog": "#1d4ed8", "paper": "#6d28d9", "twitter": "#0891b2",
+      "newsletter": "#b45309", "aggregator": "#7c2d12", "release": "#065f46",
+      "personal blog": "#7c3aed", "academic": "#a16207", "macro": "#065f46",
+      "finance": "#065f46", "video": "#dc2626"
+    } %}
+    {% set use_colors = {
+      "announcement": "#1d4ed8", "release": "#065f46", "tutorial": "#0891b2",
+      "research": "#6d28d9", "benchmark": "#b45309", "discussion": "#7c2d12",
+      "opinion": "#9f1239", "survey": "#a16207", "incident": "#b91c1c", "tooling": "#0e7490"
+    } %}
+    <div style="margin-bottom:8px;">
+      {% if it.source_kind %}
+      <span style="display:inline-block;font-size:10px;padding:2px 8px;border-radius:10px;background:#f3f4f6;color:{{ kind_colors[it.source_kind] | default('#444') }};border:1px solid #e5e7eb;margin-right:4px;text-transform:uppercase;letter-spacing:0.04em;">{{ it.source_kind }}</span>
+      {% endif %}
+      {% if it.use_case %}
+      <span style="display:inline-block;font-size:10px;padding:2px 8px;border-radius:10px;background:#fff;color:{{ use_colors[it.use_case] | default('#444') }};border:1px solid {{ use_colors[it.use_case] | default('#e5e7eb') }};margin-right:4px;text-transform:uppercase;letter-spacing:0.04em;">{{ it.use_case }}</span>
+      {% endif %}
+      <span title="LLM relevance: {{ it.relevance_score|default(5) }}/10 · raw score: {{ "%.1f"|format(it.score|default(0)) }}" style="display:inline-block;font-size:10px;padding:2px 8px;border-radius:10px;background:#1a1a1a;color:#fff;letter-spacing:0.04em;">{{ it.relevance_score|default(5) }}/10</span>
+      {% if it.lang == "zh" %}
+      <span style="display:inline-block;font-size:10px;padding:2px 8px;border-radius:10px;background:#fee2e2;color:#991b1b;border:1px solid #fecaca;margin-left:4px;letter-spacing:0.04em;">中文</span>
+      {% endif %}
+    </div>
+
+    {# Route title clicks through /click for telemetry when server_url is available. #}
+    {% set click_href = (server_url + "/click/" + it.id + "?u=" + (it.url | urlencode)) if server_url else it.url %}
+    <a href="{{ click_href }}" style="font-size:16px;font-weight:600;color:#1a1a1a;text-decoration:none;line-height:1.35;">{{ it.title }}</a>
+
+    {% if it.tldr %}
+    <div style="font-size:14px;line-height:1.55;margin-top:8px;color:#222;">{{ it.tldr }}</div>
+    {% endif %}
+
+    {% if it.bullets %}
+    <ul style="margin:10px 0 0 0;padding-left:20px;color:#333;font-size:13px;line-height:1.5;">
+      {% for b in it.bullets %}<li style="margin-bottom:3px;">{{ b }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if it.impact_bullets or it.utilize_bullets or it.discussion or it.explore %}
+    <div style="margin-top:12px;background:#fafaf8;padding:12px 14px;border-radius:4px;font-size:12.5px;line-height:1.5;color:#333;">
+      {% if it.impact_bullets %}
+      <div style="margin-bottom:8px;">
+        <div style="color:#666;font-weight:600;margin-bottom:3px;">Why it matters</div>
+        <ul style="margin:0;padding-left:18px;">
+          {% for b in it.impact_bullets %}<li style="margin-bottom:2px;">{{ b }}</li>{% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+      {% if it.utilize_bullets %}
+      <div style="margin-bottom:8px;">
+        <div style="color:#666;font-weight:600;margin-bottom:3px;">How to use</div>
+        <ul style="margin:0;padding-left:18px;">
+          {% for b in it.utilize_bullets %}<li style="margin-bottom:2px;">{{ b }}</li>{% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+      {% if it.discussion %}<div style="margin-bottom:6px;"><span style="color:#666;font-weight:600;">Take · </span>{{ it.discussion }}</div>{% endif %}
+      {% if it.explore %}
+        <div><span style="color:#666;font-weight:600;">Explore next · </span>
+        {% for e in it.explore %}<a href="{{ e.url }}" style="background:#fff;border:1px solid #c7d2fe;color:#1d4ed8;padding:1px 8px;border-radius:8px;margin-right:4px;display:inline-block;margin-top:2px;text-decoration:none;">{{ e.label }} ↗</a>{% endfor %}
+        </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if it.x_discussion_urls %}
+    <div style="margin-top:8px;font-size:12px;color:#333;">
+      <span style="color:#666;font-weight:600;">Discussion on X · </span>
+      <span style="background:#dbeafe;color:#1d4ed8;padding:1px 6px;border-radius:8px;font-size:10px;margin-right:6px;">{{ it.x_discussion_count }} tweets</span>
+      {% for url in it.x_discussion_urls %}
+        <a href="{{ url }}" style="text-decoration:none;color:#1d4ed8;margin-right:8px;">@{{ url.split('/')[3] }}/{{ url.split('/')[5][:10] }}…</a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+  </div>
+  {% endfor %}
+  {% endfor %}
+
+  {% endfor %}
+
+  <!-- Footer -->
+  <div style="margin-top:24px;padding-top:14px;border-top:1px solid #e7e3da;font-size:11px;color:#999;line-height:1.6;">
+    Generated {{ generated_at }} by news-digest. {{ counts.total }} items shown ({{ counts.dropped }} ranked below cutoff).
+    {% if failures %}<div style="color:#c2410c;margin-top:4px;">Degraded: {{ failures|join(", ") }}</div>{% endif %}
+  </div>
+</div>
+</body>
+</html>

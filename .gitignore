@@ -1,0 +1,24 @@
+# Local environment
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# User-specific config — copy config.example.yaml to config.yaml and edit
+config.yaml
+
+# Runtime data
+data/
+!data/.gitkeep
+
+# Run logs
+logs/
+!logs/.gitkeep
+
+# Backups
+*.bak
+*.tmp
+
+# Editor
+.vscode/
+.idea/
