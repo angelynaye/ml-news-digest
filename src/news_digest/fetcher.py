@@ -2,6 +2,9 @@
 from __future__ import annotations
 import hashlib
 import logging
+import shutil
+import subprocess
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
@@ -16,6 +19,36 @@ log = logging.getLogger(__name__)
 UA = "Mozilla/5.0 (Macintosh; news-digest/0.1; +https://example.invalid)"
 HEADERS = {"User-Agent": UA, "Accept": "application/rss+xml, application/atom+xml, text/xml, */*"}
 REQUEST_TIMEOUT = 15
+
+RSSHUB_CONTAINER = "rsshub"
+RSSHUB_HEALTH_URL = "http://localhost:1200/"
+_rsshub_restart_lock = threading.Lock()
+
+
+def _restart_rsshub_and_wait(container: str = RSSHUB_CONTAINER, wait_s: int = 60) -> bool:
+    """Restart the RSSHub container and wait for its root URL to respond. Serialized across threads."""
+    docker = shutil.which("docker")
+    if not docker:
+        log.warning("docker binary not found; cannot restart %s", container)
+        return False
+    with _rsshub_restart_lock:
+        try:
+            subprocess.run([docker, "restart", container], check=True, timeout=60, capture_output=True)
+        except Exception as e:
+            log.warning("docker restart %s failed: %s", container, e)
+            return False
+        deadline = time.monotonic() + wait_s
+        while time.monotonic() < deadline:
+            try:
+                r = requests.get(RSSHUB_HEALTH_URL, timeout=3)
+                if r.status_code < 500:
+                    log.info("rsshub healthy after restart (HTTP %d)", r.status_code)
+                    return True
+            except Exception:
+                pass
+            time.sleep(2)
+        log.warning("rsshub did not become healthy within %ds after restart", wait_s)
+        return False
 
 
 def _stable_id(url: str, title: str | None) -> str:
@@ -95,11 +128,31 @@ def fetch_feed(source: dict, lookback_hours: int, cache_ttl_sec: int = 21600) ->
     name = source["name"]
     url = source["url"]
     cutoff = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
-    body = cached_get(url, ttl_sec=cache_ttl_sec, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    is_bilibili = name.startswith("Bilibili")
+    timeout = 90 if is_bilibili else REQUEST_TIMEOUT
+    max_attempts = 3 if is_bilibili else 1
+    body = None
+    feed = None
+    for attempt in range(1, max_attempts + 1):
+        ttl = cache_ttl_sec if attempt == 1 else 0
+        body = cached_get(url, ttl_sec=ttl, headers=HEADERS, timeout=timeout)
+        if body is not None:
+            feed = feedparser.parse(body)
+            if not is_bilibili or feed.entries:
+                break
+        if is_bilibili and attempt < max_attempts:
+            log.warning("bilibili fetch failed for %s (attempt %d/%d) — restarting rsshub",
+                        name, attempt, max_attempts)
+            _restart_rsshub_and_wait()
     if body is None:
         log.warning("fetch failed for %s", name)
         return []
-    feed = feedparser.parse(body)
+    if feed is None:
+        feed = feedparser.parse(body)
+    if is_bilibili and not feed.entries:
+        log.warning("bilibili feed empty for %s after %d attempts (url=%s)",
+                    name, max_attempts, url)
+        return []
     items: list[dict] = []
     for entry in feed.entries:
         link = entry.get("link") or ""
@@ -109,7 +162,7 @@ def fetch_feed(source: dict, lookback_hours: int, cache_ttl_sec: int = 21600) ->
         published = _parse_published(entry)
         # If the feed doesn't supply a date, keep the item — it'll get
         # filtered by dedup if old.
-        if published and published < cutoff:
+        if published and published < cutoff and not is_bilibili:
             continue
         items.append({
             "id": _stable_id(link, title),
